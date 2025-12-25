@@ -43,67 +43,86 @@ async function init() {
     composer.addPass(bloomPass);
 
 
-    // --- 2. Particle Tree Generation ---
+    // --- 2. Particle Nebula Tree (Volumetric) ---
     const geometry = new THREE.BufferGeometry();
     const positions = [];
     const colors = [];
-    const sizes = []; // Varying sizes for particles
+    const sizes = [];
+    
+    // Physics Data stored in typed arrays for performance
+    const count = 5000; // Nebula density
+    const originalPositions = new Float32Array(count * 3);
+    const velocities = new Float32Array(count * 3);
+
     const colorObj = new THREE.Color();
 
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
-        // Spiral Cone
-        const t = i / PARTICLE_COUNT;
-        const angle = t * Math.PI * 2 * 15; // More spirals
-        const radius = (1 - t) * TREE_RADIUS;
-        
-        // Jitter
-        const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 0.8;
-        const y = t * TREE_HEIGHT - 5; 
-        const z = Math.sin(angle) * radius + (Math.random() - 0.5) * 0.8;
+    for (let i = 0; i < count; i++) {
+        // Volumetric Cone Logic
+        // Height: 0 to TREE_HEIGHT
+        const h = Math.random() * TREE_HEIGHT;
+        // Radius at this height
+        const maxR = (1 - (h / TREE_HEIGHT)) * TREE_RADIUS;
+        // Random point inside circle at height h
+        // sqrt(random) for uniform distribution, or just random for center-bias (nebula core)
+        const r = Math.random() * maxR; 
+        const angle = Math.random() * Math.PI * 2;
+
+        const x = Math.cos(angle) * r;
+        const y = h - 5; // Center Y
+        const z = Math.sin(angle) * r;
 
         positions.push(x, y, z);
-
-        // Better Colors
-        // 70% Green (Base), 15% Gold (Lights), 15% Red/Blue (Ornaments)
-        const rand = Math.random();
-        let size = 0.2;
         
-        if (rand > 0.85) {
-            colorObj.setHex(0xff0000); // Red
-            size = 0.5; // Bigger ornaments
-        }
-        else if (rand > 0.70) {
-            colorObj.setHex(0xffaa00); // Gold
-            colorObj.multiplyScalar(2); // Super bright for bloom
-            size = 0.4;
-        } 
-        else if (rand > 0.65) {
-            colorObj.setHex(0x0088ff); // Ice Blue
-            colorObj.multiplyScalar(2); 
-            size = 0.4;
-        }
-        else {
-             // Forest Green varying
-             colorObj.setHex(0x228b22); 
-             colorObj.offsetHSL(0, 0, (Math.random()-0.5)*0.1);
+        // Store original for physics return
+        originalPositions[i*3] = x;
+        originalPositions[i*3+1] = y;
+        originalPositions[i*3+2] = z;
+
+        // Init velocities
+        velocities[i*3] = 0;
+        velocities[i*3+1] = 0;
+        velocities[i*3+2] = 0;
+
+        // Nebula Colors
+        // Core: Gold/Warm. Edges: Blue/Cold or Green.
+        // Let's mix Christmas: Deep Green, with glowing Gold core and Red accents.
+        const distFromCenter = r / TREE_RADIUS;
+        const rand = Math.random();
+
+        if (rand > 0.90) {
+            // Ornaments (Red/Gold)
+            colorObj.setHex(rand > 0.95 ? 0xffd700 : 0xff0000);
+            colorObj.multiplyScalar(2.0); // Bright bloom
+            sizes.push(0.6); // Large
+        } else {
+            // Tree Body
+            // Mix Green and Teal for magical look
+            if (distFromCenter < 0.3) {
+                colorObj.setHex(0xffffaa); // Inner glow
+                colorObj.multiplyScalar(0.5);
+            } else {
+                colorObj.setHex(0x228b22); // Green
+                // Add some Blue gradient for "Frozen/Magic" feel
+                colorObj.lerp(new THREE.Color(0x0044aa), Math.random() * 0.3);
+            }
+            sizes.push(Math.random() * 0.3 + 0.1);
         }
 
         colors.push(colorObj.r, colorObj.g, colorObj.b);
-        sizes.push(size);
     }
 
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
 
-    // ShaderMaterial for twinkling/round particles
+    // Refined Shader for Soft Particles
     const vertexShader = `
         attribute float size;
         varying vec3 vColor;
         void main() {
             vColor = color;
             vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
-            gl_PointSize = size * ( 300.0 / -mvPosition.z );
+            gl_PointSize = size * ( 400.0 / -mvPosition.z );
             gl_Position = projectionMatrix * mvPosition;
         }
     `;
@@ -111,20 +130,19 @@ async function init() {
     const fragmentShader = `
         varying vec3 vColor;
         void main() {
-            // Circular particle
-            float r = distance(gl_PointCoord, vec2(0.5, 0.5));
-            if (r > 0.5) discard;
+            vec2 xy = gl_PointCoord.xy - vec2(0.5);
+            float ll = length(xy);
+            if (ll > 0.5) discard;
             
-            // Soft edge
-            float glow = 1.0 - (r * 2.0);
-            glow = pow(glow, 1.5);
+            // Soft glow gradient
+            float alpha = (0.5 - ll) * 2.0;
+            alpha = pow(alpha, 2.0);
             
-            gl_FragColor = vec4( vColor, glow );
+            gl_FragColor = vec4( vColor, alpha );
         }
     `;
 
     const material = new THREE.ShaderMaterial({
-        uniforms: {},
         vertexShader: vertexShader,
         fragmentShader: fragmentShader,
         blending: THREE.AdditiveBlending,
@@ -136,38 +154,30 @@ async function init() {
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // --- Snow System ---
+    // --- Snow System using same shader but white ---
     const snowGeo = new THREE.BufferGeometry();
     const snowPos = [];
-    const snowVel = []; // Velocities
+    const snowVel = [];
     for(let i=0; i<SNOW_COUNT; i++) {
         snowPos.push(
-            (Math.random() - 0.5) * 50,
-            (Math.random() - 0.5) * 50,
-            (Math.random() - 0.5) * 50
+            (Math.random() - 0.5) * 60,
+            (Math.random() - 0.5) * 60,
+            (Math.random() - 0.5) * 60
         );
         snowVel.push(
-            (Math.random() - 0.5) * 0.1, // x drift
-            -(Math.random() * 0.1 + 0.05), // fall speed
-            (Math.random() - 0.5) * 0.1 // z drift
+            (Math.random() - 0.5) * 0.05,
+            -(Math.random() * 0.1 + 0.05),
+            (Math.random() - 0.5) * 0.05
         );
     }
     snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowPos, 3));
+    snowGeo.setAttribute('size', new THREE.Float32BufferAttribute(new Float32Array(SNOW_COUNT).fill(0.3), 1));
+    snowGeo.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(SNOW_COUNT * 3).fill(1.0), 3));
     
-    // Snow uses simple points
-    const snowMat = new THREE.PointsMaterial({
-        color: 0xffffff,
-        size: 0.2,
-        transparent: true,
-        opacity: 0.6,
-        blending: THREE.AdditiveBlending,
-         map: createParticleTexture() // reuse texture
-    });
-    const snowSystem = new THREE.Points(snowGeo, snowMat);
+    const snowSystem = new THREE.Points(snowGeo, material.clone()); // Clone material to share shader
     scene.add(snowSystem);
 
-
-    // Star at the top (Brighter)
+    // Star interaction light
     const starGeo = new THREE.SphereGeometry(0.5, 32, 32);
     const starMat = new THREE.MeshBasicMaterial({ color: 0xffff88 });
     const star = new THREE.Mesh(starGeo, starMat);
@@ -184,29 +194,126 @@ async function init() {
 
     // --- 3. Animation Loop ---
     const clock = new THREE.Clock();
+    
+    // Force Field Vars
+    const mouseSphere = new THREE.Vector3();
+    const repulsionRadius = 6.0;
+    const forceStrength = 20.0;
+    const returnStrength = 2.0;
+    const damping = 0.90;
 
     function animate() {
         requestAnimationFrame(animate);
 
+        const delta = Math.min(clock.getDelta(), 0.1); // Cap delta
         const time = clock.getElapsedTime();
 
-        // Rotate tree slowly
+        // 1. Calculate Hand 3D Position for Repulsion
+        // Project ray to Z=0 plane (approx tree center-ish) or closer
+        if (handState.visible) {
+             raycaster.setFromCamera(handState.vector, camera);
+             // Plane at Z = 5 (front of tree roughly)
+             // Ray: O + tD.  z = Oz + tDz = 5 => t = (5 - Oz)/Dz
+             const targetZ = 5;
+             const t = (targetZ - raycaster.ray.origin.z) / raycaster.ray.direction.z;
+             mouseSphere.copy(raycaster.ray.origin).add(raycaster.ray.direction.multiplyScalar(t));
+        } else {
+            mouseSphere.set(1000, 1000, 1000); // Far away
+        }
+
+        // 2. Physics Update
+        // Only run physics if hand is visible/close or particles are displaced? 
+        // Always run for return logic + "breathing"
+        const attrs = particles.geometry.attributes.position.array;
+        let needsUpdate = false;
+
+        for(let i=0; i<count; i++) {
+            const ix = i * 3;
+            const iy = i * 3 + 1;
+            const iz = i * 3 + 2;
+
+            let px = attrs[ix];
+            let py = attrs[iy];
+            let pz = attrs[iz];
+
+            // A. Breathing / Idle movement
+            const ox = originalPositions[ix];
+            const oy = originalPositions[iy];
+            const oz = originalPositions[iz];
+
+            // Add simple noise drift to original target?
+            const drift = Math.sin(time * 2 + i) * 0.05; 
+            const targetX = ox + drift;
+            const targetY = oy + drift;
+            const targetZ = oz;
+
+            // B. Repulsion Force
+            const dx = px - mouseSphere.x;
+            const dy = py - mouseSphere.y;
+            const dz = pz - mouseSphere.z;
+            const distSq = dx*dx + dy*dy + dz*dz;
+
+            if (distSq < repulsionRadius * repulsionRadius) {
+                const dist = Math.sqrt(distSq);
+                const force = (1 - dist / repulsionRadius) * forceStrength;
+                // Direction * Force * Delta
+                velocities[ix] += (dx / dist) * force * delta;
+                velocities[iy] += (dy / dist) * force * delta;
+                velocities[iz] += (dz / dist) * force * delta;
+            }
+
+            // C. Return Force (Spring)
+            velocities[ix] += (targetX - px) * returnStrength * delta;
+            velocities[iy] += (targetY - py) * returnStrength * delta;
+            velocities[iz] += (targetZ - pz) * returnStrength * delta;
+
+            // D. Damping
+            velocities[ix] *= damping;
+            velocities[iy] *= damping;
+            velocities[iz] *= damping;
+
+            // E. Apply
+            attrs[ix] += velocities[ix] * delta;
+            attrs[iy] += velocities[iy] * delta;
+            attrs[iz] += velocities[iz] * delta;
+        }
+
+        particles.geometry.attributes.position.needsUpdate = true;
+
+        // Tree Rotation (Group or Camera orbit?)
+        // Since physics is world-space based on originalPos, rotating the MESH will rotate the physics interaction frame?
+        // Actually, if we rotate the mesh `particles.rotation.y`, the vertex positions are local.
+        // Screen raycast is world space.
+        // We need to inverse rotate the repulsion point into local space, OR rotate originalPositions?
+        // Simpler: Rotate the Mesh. The `positions` attribute is LOCAL to the mesh.
+        // Physics Calculation: Hand(World) -> Transform to Local -> Apply Force(Local).
+        
+        if (!grabbedPhoto && handState.visible) {
+             // Convert mouseSphere (World) to Local Space of particles
+             // particles.worldToLocal(mouseSphere.clone()); // Careful, we modify simpler.
+             // Just rotate the input vector inverse to tree rotation.
+             const cosR = Math.cos(-particles.rotation.y);
+             const sinR = Math.sin(-particles.rotation.y);
+             // Rotate x,z
+             const lx = mouseSphere.x * cosR - mouseSphere.z * sinR;
+             const lz = mouseSphere.x * sinR + mouseSphere.z * cosR;
+             mouseSphere.x = lx;
+             mouseSphere.z = lz;
+             // Now mouseSphere is approximate local.
+        }
+
+        // Slowly Rotate Tree
         if (!grabbedPhoto) {
-            particles.rotation.y = time * 0.05; // slower, more majestic
+            particles.rotation.y = time * 0.05;
             
-            // Sync photos rotation matches tree
-            const treeRotation = particles.rotation.y;
-             photos.forEach(p => {
-                if(p !== grabbedPhoto) {
+            // Sync photos
+            photos.forEach(p => {
+                 if(p !== grabbedPhoto) {
                     const radius = p.userData.radius;
-                    // Initial angle + tree rotation
-                    const currentAngle = p.userData.initialAngle + treeRotation;
+                    const currentAngle = p.userData.initialAngle + particles.rotation.y;
                     p.position.x = Math.cos(currentAngle) * radius;
                     p.position.z = Math.sin(currentAngle) * radius;
-                    // Make photo face outward or camera? Outward looks like decoration.
-                    // p.lookAt(0, p.position.y, 0); // Face center (backwards)
-                    // p.rotation.y += Math.PI; // Flash outward
-                    p.lookAt(camera.position); // Billboard usually best for photos
+                    p.lookAt(camera.position); 
                 }
             });
         }
@@ -214,22 +321,20 @@ async function init() {
         star.rotation.y = -time * 0.2;
 
         // Snow animation
-        const positions = snowSystem.geometry.attributes.position.array;
+        const snowP = snowSystem.geometry.attributes.position.array;
         for(let i=0; i<SNOW_COUNT; i++) {
-            positions[i*3] += snowVel[i*3];
-            positions[i*3+1] += snowVel[i*3+1];
-            positions[i*3+2] += snowVel[i*3+2];
+            snowP[i*3] += snowVel[i*3];
+            snowP[i*3+1] += snowVel[i*3+1];
+            snowP[i*3+2] += snowVel[i*3+2];
             
-            // Reset if below floor
-            if(positions[i*3+1] < -15) {
-                 positions[i*3+1] = 15;
+            if(snowP[i*3+1] < -20) {
+                 snowP[i*3+1] = 20;
             }
         }
         snowSystem.geometry.attributes.position.needsUpdate = true;
 
         updateInteractions(camera, scene);
         
-        // renderer.render(scene, camera); // Replace with composer
         composer.render();
     }
 
