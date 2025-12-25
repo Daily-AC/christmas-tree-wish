@@ -155,7 +155,7 @@
     </div>
 
     <div id="ui-container">
-        <h1>Merry Christmas</h1>
+        <h1>Merry Christmas, My YingYing</h1>
 
         <label class="upload-wrapper">
             <span class="upload-text">ADD MEMORIES</span>
@@ -265,9 +265,21 @@
             window.addEventListener('resize', this.onResize.bind(this));
             
             // UI Toggle
+            let keySequence = [];
             window.addEventListener('keydown', (e) => {
-                if (e.key.toLowerCase() === 'h') {
+                const key = e.key.toLowerCase();
+                
+                // Hide UI
+                if (key === 'h') {
                     document.getElementById('ui-container').classList.toggle('ui-hidden');
+                }
+
+                // Easter Egg: 'ying'
+                keySequence.push(key);
+                if (keySequence.length > 4) keySequence.shift();
+                if (keySequence.join('') === 'ying') {
+                    this.triggerLoveExplosion();
+                    keySequence = [];
                 }
             });
 
@@ -323,9 +335,9 @@
             defaultCanvas.width = 512; defaultCanvas.height = 512;
             const ctx = defaultCanvas.getContext('2d');
             ctx.fillStyle = '#fceea7'; ctx.fillRect(0,0,512,512);
-            ctx.fillStyle = '#000'; ctx.font = 'bold 80px Cinzel'; ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText('JOYEUX', 256, 200);
-            ctx.fillText('NOEL', 256, 312);
+            ctx.fillStyle = '#000'; ctx.font = 'bold 60px Cinzel'; ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText('For BenDan', 256, 200);
+            ctx.fillText('YingYing', 256, 312);
             const defaultTex = new THREE.CanvasTexture(defaultCanvas);
             defaultTex.colorSpace = THREE.SRGBColorSpace;
             this.createPhotoObject(defaultTex); // Add initial photo
@@ -352,14 +364,33 @@
                 this.initParticle(mesh, i, 1500);
             }
 
-            // 2500 Dust Particles (Simple tiny planes or small boxes)
-            const dustGeo = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-            const dustMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.6 });
+            // 2500 Heart Particles (Love for YingYing)
+            const heartGeo = this.createHeartGeometry();
+            const heartMat = new THREE.MeshBasicMaterial({ color: 0xff69b4, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
+            
             for (let i = 0; i < 2500; i++) {
-                const mesh = new THREE.Mesh(dustGeo, dustMat);
-                mesh.userData.type = 'DUST';
+                const mesh = new THREE.Mesh(heartGeo, heartMat);
+                mesh.userData.type = 'HEART'; // Changed from DUST
+                // Randomize scale for hearts
+                const s = 0.01 + Math.random() * 0.02;
+                mesh.scale.set(s, -s, s); // Flip y because shape is upside down locally usually
                 this.initParticle(mesh, i, 2500, true);
             }
+        }
+
+        createHeartGeometry() {
+            const x = 0, y = 0;
+            const shape = new THREE.Shape();
+            shape.moveTo(x + 2.5, y + 2.5);
+            shape.bezierCurveTo(x + 2.5, y + 2.5, x + 2.0, y, x, y);
+            shape.bezierCurveTo(x - 3.0, y, x - 3.0, y + 3.5, x - 3.0, y + 3.5);
+            shape.bezierCurveTo(x - 3.0, y + 5.5, x - 1.5, y + 7.7, x + 2.5, y + 9.5);
+            shape.bezierCurveTo(x + 6.5, y + 7.7, x + 8.0, y + 5.5, x + 8.0, y + 3.5);
+            shape.bezierCurveTo(x + 8.0, y + 3.5, x + 8.0, y, x + 5.0, y);
+            shape.bezierCurveTo(x + 3.5, y, x + 2.5, y + 2.5, x + 2.5, y + 2.5);
+            
+            const extrudeSettings = { depth: 1, bevelEnabled: false, steps: 1 };
+            return new THREE.ExtrudeGeometry(shape, extrudeSettings);
         }
 
         createCandyCaneGeometry() {
@@ -409,6 +440,38 @@
             mesh.scale.set(0.5, 0.5, 0.5); // Initial small
             this.initParticle(mesh, Math.random() * 100, 100);
             STATE.photos.push(mesh);
+        }
+
+        triggerLoveExplosion() {
+            // Flash effect
+            const originalColor = document.body.style.backgroundColor;
+            document.body.style.backgroundColor = '#220011'; // Dark Pink bg
+            setTimeout(() => document.body.style.backgroundColor = originalColor, 300);
+
+            // Change all hearts to Bright Red temporarily
+            this.particles.forEach(p => {
+                if (p.userData.type === 'HEART') {
+                    p.material.color.setHex(0xff0000);
+                    p.scale.multiplyScalar(2);
+                }
+            });
+
+            // UI Feedback
+            const h1 = document.querySelector('h1');
+            const originalText = h1.innerText;
+            h1.innerText = "💖 LOVE YOU YINGYING 💖";
+            
+            setTimeout(() => {
+                h1.innerText = originalText;
+                this.particles.forEach(p => {
+                    if (p.userData.type === 'HEART') {
+                        p.material.color.setHex(0xff69b4); // Back to pink
+                        p.scale.multiplyScalar(0.5);
+                    }
+                });
+            }, 3000);
+            
+            console.log("EASTER EGG TRIGGERED!");
         }
 
         loadLocalResources() {
@@ -468,6 +531,9 @@
             // Initial Pos
             mesh.position.copy(mesh.userData.treePos);
             mesh.rotation.set(Math.random()*Math.PI, Math.random()*Math.PI, 0);
+            
+            // Store initial scale for restoration
+            mesh.userData.initialScale = mesh.scale.clone();
 
             this.particlesGroup.add(mesh);
             this.particles.push(mesh);
@@ -513,27 +579,36 @@
                         // Better: keep it local 35 and let it spin with tree, or detach?
                         // Prompt says: (0, 2, 35). Let's stick to local coords.
                         
-                        // Scale up
-                        p.scale.lerp(new THREE.Vector3(4.5, 4.5, 4.5), 0.05);
                         p.lookAt(this.camera.position); 
                     } else {
                         // Background
                         target = p.userData.scatterPos;
-                        p.scale.lerp(new THREE.Vector3(0.5, 0.5, 0.5), 0.05); // Reset scale
                     }
                 } else {
                     target = p.userData.treePos;
                 }
                 
-                // Position Lerp
                 if (target) {
                     p.position.lerp(target, 0.03);
                 }
 
-                // If not Focus target, reset scale normally
-                if (STATE.mode !== 'FOCUS' && p.userData.type === 'PHOTO') {
-                    p.scale.lerp(new THREE.Vector3(0.5, 0.5, 0.5), 0.05);
+                // Scale Logic ( Robust )
+                let targetScale;
+                if (STATE.mode === 'FOCUS' && p === STATE.focusTarget) {
+                    // Focused Item: Big
+                    targetScale = p.userData.initialScale.clone().multiplyScalar(8.0); // was 4.5, relative to initial
+                    p.lookAt(this.camera.position); 
+                } else if (STATE.mode === 'FOCUS') {
+                    // Background Items: Shrink to almost invisible (0.1%)
+                    // This ensures Candy Canes and Ornaments don't block the view
+                    targetScale = p.userData.initialScale.clone().multiplyScalar(0.1); 
+                } else {
+                    // Normal Mode: Return to original size
+                    targetScale = p.userData.initialScale;
                 }
+                
+                // Lerp Scale
+                p.scale.lerp(targetScale, 0.1);
             });
 
             this.controls.update();
