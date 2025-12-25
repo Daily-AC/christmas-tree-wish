@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Magical Christmas Tree</title>
+    <link rel="stylesheet" href="styles.css" />
+
+    <!-- MediaPipe Dependencies -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
+      crossorigin="anonymous"
+    ></script>
+
+    <!-- Three.js (ES Module will be imported in script.js) -->
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="loading">Loading Christmas Magic...</div>
+    <div id="instructions">
+      <p>🎄 允许摄像头权限以开启魔法手势 🎄</p>
+      <p>👋 挥手移动光标 | 🤏 捏合手指抓取照片</p>
+    </div>
+
+    <!-- Video element for MediaPipe (hidden) -->
+    <video class="input_video" style="display: none"></video>
+
+    <!-- Main Canvas -->
+    <canvas class="output_canvas" id="mainCanvas"></canvas>
+
+    <script type="module" src="script.js"></script>
+  </body>
+</html>
