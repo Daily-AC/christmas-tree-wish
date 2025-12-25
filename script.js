@@ -308,23 +308,7 @@ class ChristmasApp {
         this.composer.render();
     }
 
-        // 1. Instanced Mesh Particles (Gold Boxes & Spheres)
-        const boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-        const sphereGeo = new THREE.SphereGeometry(0.25, 16, 16);
-        
-        const goldMat = new THREE.MeshStandardMaterial({ 
-            color: 0xd4af37, roughness: 0.1, metalness: 0.9 
-        });
-        const greenMat = new THREE.MeshStandardMaterial({ 
-            color: 0x003300, roughness: 0.8, metalness: 0.1 
-        });
-        const redMat = new THREE.MeshPhysicalMaterial({
-            color: 0xaa0000, roughness: 0.2, metalness: 0.1, clearcoat: 1.0
-        });
 
-        // We'll manage particles in a custom class for State Machine logic
-        this.particleSystem = new ParticleManager(this.mainGroup, CONFIG.particleCount);
-    }
 
     initInputs() {
         // UI Logic
