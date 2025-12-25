@@ -50,7 +50,7 @@ class ChristmasApp {
         this.renderer.setSize(window.innerWidth, window.innerHeight);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
         this.renderer.toneMapping = THREE.ReinhardToneMapping;
-        this.renderer.toneMappingExposure = 2.2;
+        this.renderer.toneMappingExposure = 2.0;
         this.renderer.shadowMap.enabled = true;
         this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
@@ -59,32 +59,31 @@ class ChristmasApp {
         this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.camera.position.copy(CONFIG.cameraPos);
 
-        // Environment
-        const pmremGenerator = new THREE.PMREMGenerator(this.renderer);
-        this.scene.environment = pmremGenerator.fromScene(new RoomEnvironment(), 0.04).texture;
-
         // Lighting
-        const ambient = new THREE.AmbientLight(0xffffff, 0.6);
+        const ambient = new THREE.AmbientLight(0xffffff, 0.4);
         this.scene.add(ambient);
 
-        const pointLight = new THREE.PointLight(0xffaa00, 2, 20); // Inner warm glow
+        const pointLight = new THREE.PointLight(0xffaa00, 2, 20); 
         pointLight.position.set(0, 10, 0);
         this.scene.add(pointLight);
 
-        const spotGold = new THREE.SpotLight(0xd4af37, 1200);
+        const spotGold = new THREE.SpotLight(0xd4af37, 1000);
         spotGold.position.set(30, 40, 40);
         spotGold.angle = Math.PI / 6;
         spotGold.penumbra = 0.5;
         spotGold.castShadow = true;
         this.scene.add(spotGold);
 
-        const spotBlue = new THREE.SpotLight(0x0044aa, 600);
-        spotBlue.position.set(-30, 20, -30); // Backlight
+        const spotBlue = new THREE.SpotLight(0x0044aa, 500);
+        spotBlue.position.set(-30, 20, -30); 
         this.scene.add(spotBlue);
         
-        // Root Container for easy rotation
+        // Root Container
         this.mainGroup = new THREE.Group();
         this.scene.add(this.mainGroup);
+        
+        // --- Eternal Galaxy Background ---
+        this.initGalaxyBackground();
 
         // Resize Handler
         window.addEventListener('resize', () => {
@@ -92,7 +91,125 @@ class ChristmasApp {
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(window.innerWidth, window.innerHeight);
             this.composer.setSize(window.innerWidth, window.innerHeight);
+            // Update shader uniforms resolution if needed
+            if(this.bgMaterial) {
+                this.bgMaterial.uniforms.resolution.value.set(window.innerWidth, window.innerHeight);
+            }
         });
+    }
+    
+    initGalaxyBackground() {
+        // Fullscreen quad at the back
+        const geometry = new THREE.PlaneGeometry(2, 2);
+        
+        const uniforms = {
+            time: { value: 0 },
+            resolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) }
+        };
+
+        const vertexShader = `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = vec4(position, 1.0);
+            }
+        `;
+
+        // Shader based on simple noise and nebula colors
+        const fragmentShader = `
+            uniform float time;
+            uniform vec2 resolution;
+            varying vec2 vUv;
+
+            // Simplex Noise (simplified)
+            vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
+            float snoise(vec2 v){
+              const vec4 C = vec4(0.211324865405187, 0.366025403784439,
+                       -0.577350269189626, 0.024390243902439);
+              vec2 i  = floor(v + dot(v, C.yy) );
+              vec2 x0 = v - i + dot(i, C.xx);
+              vec2 i1;
+              i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+              vec4 x12 = x0.xyxy + C.xxzz;
+              x12.xy -= i1;
+              i = mod(i, 289.0);
+              vec3 p = permute( permute( i.y + vec3(0.0, i1.y, 1.0 ))
+              + i.x + vec3(0.0, i1.x, 1.0 ));
+              vec3 m = max(0.5 - vec3(dot(x0,x0), dot(x12.xy,x12.xy), dot(x12.zw,x12.zw)), 0.0);
+              m = m*m ;
+              m = m*m ;
+              vec3 x = 2.0 * fract(p * C.www) - 1.0;
+              vec3 h = abs(x) - 0.5;
+              vec3 ox = floor(x + 0.5);
+              vec3 a0 = x - ox;
+              m *= 1.79284291400159 - 0.85373472095314 * ( a0*a0 + h*h );
+              vec3 g;
+              g.x  = a0.x  * x0.x  + h.x  * x0.y;
+              g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+              return 130.0 * dot(m, g);
+            }
+
+            void main() {
+                vec2 uv = gl_FragCoord.xy / resolution.xy;
+                // Aspect ratio fix
+                uv.x *= resolution.x / resolution.y;
+                
+                // Slow drift
+                float t = time * 0.05;
+                
+                // Layers of nebula
+                float n1 = snoise(uv * 1.5 + vec2(t*0.5, t*0.2));
+                float n2 = snoise(uv * 3.0 - vec2(t*0.2, t*0.8));
+                float n3 = snoise(uv * 6.0 + vec2(t, -t));
+                
+                float stars = pow(max(0.0, snoise(uv * 20.0 + vec2(t * 0.1))), 20.0) * 1.0;
+                
+                // Colors: Deep Blue/Purple/Gold
+                vec3 c1 = vec3(0.0, 0.05, 0.2); // Deep Blue
+                vec3 c2 = vec3(0.1, 0.0, 0.2);  // Purple
+                vec3 c3 = vec3(0.6, 0.4, 0.1);  // Gold dust
+                
+                float mix1 = smoothstep(-0.5, 1.0, n1);
+                float mix2 = smoothstep(-0.5, 1.0, n2);
+                
+                vec3 col = mix(c1, c2, mix1);
+                col += c3 * max(0.0, n3) * 0.3; // Add gold dust
+                col += vec3(stars); // Add stars
+                
+                // Vignette
+                float dist = length(vUv - 0.5);
+                col *= smoothstep(1.2, 0.2, dist);
+
+                gl_FragColor = vec4(col, 1.0);
+            }
+        `;
+
+        this.bgMaterial = new THREE.ShaderMaterial({
+            uniforms: uniforms,
+            vertexShader: vertexShader,
+            fragmentShader: fragmentShader,
+            depthWrite: false
+        });
+
+        const bgMesh = new THREE.Mesh(geometry, this.bgMaterial);
+        // Add to separate scene or put it way back?
+        // Since we use RoomEnvironment and standard pipeline, simpler to put it far away in scene.
+        this.scene.background = new THREE.Color(0x000000); // Fallback
+        
+        // Actually, to make it display behind everything, we can render it first or put it far back.
+        // Let's create a Background Scene for renderPass?
+        // Simpler: Just a big plane way back attached to camera.
+        this.scene.add(bgMesh);
+        // Wait, screen quad logic needs to be attached to camera or use Orthographic cam.
+        // Let's us simple skybox sphere instead? No, user wants shader.
+        // Let's use Background property workarounds or just render quad.
+        
+        // Proper way: Put mesh in scene, attached to camera, drawn first.
+        bgMesh.frustumCulled = false;
+        // Make it huge and far
+        bgMesh.position.z = -100;
+        bgMesh.scale.set(300, 300, 1);
+        this.scene.add(bgMesh); // Add to scene
     }
 
     initPostProcessing() {
@@ -102,14 +219,93 @@ class ChristmasApp {
 
         const bloomPass = new UnrealBloomPass(
             new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.45, // Strength
-            0.4,  // Radius
-            0.7   // Threshold
+            0.6, // Strength increased for galaxy glow
+            0.4,  
+            0.5   // Lower threshold for galaxy
         );
         this.composer.addPass(bloomPass);
     }
+    
+    // ... (Init Content / Inputs same) ...
 
-    initContent() {
+    handleGestures(results) {
+        if (results.landmarks && results.landmarks.length > 0) {
+            STATE.handDetected = true;
+            const lm = results.landmarks[0]; 
+
+            const palm = lm[9];
+            const targetRotX = (palm.y - 0.5) * 1.5; 
+            const targetRotY = (palm.x - 0.5) * 2.5; 
+            
+            STATE.handRotation.x += (targetRotX - STATE.handRotation.x) * 0.1;
+            STATE.handRotation.y += (targetRotY - STATE.handRotation.y) * 0.1;
+
+            const thumb = lm[4];
+            const index = lm[8];
+            const wrist = lm[0];
+            const tips = [lm[8], lm[12], lm[16], lm[20]]; 
+
+            const pinchDist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+            let avgTipDist = 0;
+            tips.forEach(t => avgTipDist += Math.hypot(t.x - wrist.x, t.y - wrist.y));
+            avgTipDist /= 4;
+
+            // --- IMPROVED GESTURE LOGIC ---
+            // 1. Prioritize PINCH (Focus)
+            if (pinchDist < 0.05) {
+                STATE.gesture = 'PINCH';
+                STATE.mode = 'FOCUS';
+                this.particleSystem.triggerFocus();
+            } 
+            // 2. OPEN HAND (Scatter) - Increased threshold strictly
+            else if (avgTipDist > 0.45) { 
+                STATE.gesture = 'OPEN';
+                STATE.mode = 'SCATTER';
+            } 
+            // 3. FIST (Tree) - Relaxed threshold, easier to trigger
+            else if (avgTipDist < 0.25) { 
+                STATE.gesture = 'FIST';
+                STATE.mode = 'TREE';
+            } 
+            else {
+                STATE.gesture = 'NONE';
+                // Important: Default fallthrough!
+                // If hand is just chilling, default back to TREE gently.
+                // Don't 'stick' in Scatter mode.
+                if (STATE.mode === 'SCATTER') {
+                     STATE.mode = 'TREE'; // Auto-recover
+                }
+            }
+
+        } else {
+            STATE.handDetected = false;
+            // No hand? Always TREE.
+            STATE.mode = 'TREE';
+        }
+    }
+
+    animate() {
+        requestAnimationFrame(() => this.animate());
+        const delta = this.clock.getDelta();
+        const time = this.clock.getElapsedTime();
+        
+        // Update Shader
+        if(this.bgMaterial) {
+            this.bgMaterial.uniforms.time.value = time;
+        }
+
+        if (STATE.handDetected) {
+            this.mainGroup.rotation.x = STATE.handRotation.x;
+            this.mainGroup.rotation.y = STATE.handRotation.y;
+        } else {
+            this.mainGroup.rotation.y += 0.002;
+            this.mainGroup.rotation.x = Math.sin(time * 0.5) * 0.05;
+        }
+
+        this.particleSystem.update(delta, time, STATE.mode);
+        this.composer.render();
+    }
+
         // 1. Instanced Mesh Particles (Gold Boxes & Spheres)
         const boxGeo = new THREE.BoxGeometry(0.4, 0.4, 0.4);
         const sphereGeo = new THREE.SphereGeometry(0.25, 16, 16);
@@ -213,7 +409,6 @@ class ChristmasApp {
             const lm = results.landmarks[0]; // First hand
 
             // 1. Map Position (Landmark 9 is wrist/palm centerish. 0 is wrist)
-            // MP: X 0-1, Y 0-1.
             const palm = lm[9];
             // Smooth lerp for rotation
             const targetRotX = (palm.y - 0.5) * 1.5; // Up/Down
@@ -236,26 +431,38 @@ class ChristmasApp {
             tips.forEach(t => avgTipDist += Math.hypot(t.x - wrist.x, t.y - wrist.y));
             avgTipDist /= 4;
 
+            // --- IMPROVED GESTURE LOGIC ---
+            // 1. Prioritize PINCH (Focus)
             if (pinchDist < 0.05) {
                 STATE.gesture = 'PINCH';
                 STATE.mode = 'FOCUS';
-                // Pick a random photo if none selected
                 this.particleSystem.triggerFocus();
-            } else if (avgTipDist < 0.2) { // Adjusted threshold for Fist
-                STATE.gesture = 'FIST';
-                STATE.mode = 'TREE';
-            } else if (avgTipDist > 0.35) {
+            } 
+            // 2. OPEN HAND (Scatter) - Increased threshold to 0.45 to prevent accidental scatter
+            else if (avgTipDist > 0.45) { 
                 STATE.gesture = 'OPEN';
                 STATE.mode = 'SCATTER';
-            } else {
+            } 
+            // 3. FIST (Tree) - Relaxed threshold to 0.25 (easier to form)
+            else if (avgTipDist < 0.25) { 
+                STATE.gesture = 'FIST';
+                STATE.mode = 'TREE';
+            } 
+            else {
                 STATE.gesture = 'NONE';
+                // Auto-Recover: If user is neutral or confused, default back to TREE
+                // This fixes the "stuck in Scatter" issue.
+                if (STATE.mode === 'SCATTER' || STATE.mode === 'FOCUS') {
+                     // Add a small delay/debounce logic if needed, but linear lerp handles smoothness.
+                     // Simply setting it to TREE makes it feel "elastic"
+                     STATE.mode = 'TREE'; 
+                }
             }
             
-            // Console debugging
-            // console.log(STATE.gesture, pinchDist.toFixed(2), avgTipDist.toFixed(2));
-
         } else {
             STATE.handDetected = false;
+            // No hand present? Always revert to Tree
+            STATE.mode = 'TREE';
         }
     }
 
@@ -263,6 +470,11 @@ class ChristmasApp {
         requestAnimationFrame(() => this.animate());
         const delta = this.clock.getDelta();
         const time = this.clock.getElapsedTime();
+        
+        // Update Shader Time
+        if(this.bgMaterial) {
+            this.bgMaterial.uniforms.time.value = time;
+        }
 
         // Global Scene Rotation (Autospin or Hand Control)
         if (STATE.handDetected) {
