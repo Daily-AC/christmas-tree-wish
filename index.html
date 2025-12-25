@@ -187,7 +187,8 @@
         focusTarget: null, // The photo object currently focused
         photos: [], // Array of photo objects
         lastGestureTime: 0, // Timestamp of last valid gesture
-        isHandDetected: false // Real-time detection flag
+        isHandDetected: false, // Real-time detection flag
+        velocity: { x: 0, y: 0 } // For momentum
     };
 
     class App {
@@ -558,15 +559,39 @@
             // Global Rotation Logic
             if (STATE.isHandDetected) {
                 // Hand Control: Lerp to target rotation
-                // Note: We only lerp Y (horizontal spin) based on hand X
-                // Reset X slightly to 0 for stability or use hand Y
-                this.particlesGroup.rotation.y += (STATE.targetRotation.x * 2 - this.particlesGroup.rotation.y) * 0.1;
-                this.particlesGroup.rotation.x += (STATE.targetRotation.y * 1 - this.particlesGroup.rotation.x) * 0.1;
-            } else if (STATE.mode === 'TREE') {
-                // Auto Rotation (Idle)
-                this.particlesGroup.rotation.y += 0.005; // Continuous spin
-                // Gently reset tilt
-                this.particlesGroup.rotation.x += (0 - this.particlesGroup.rotation.x) * 0.05;
+                const targetRotY = STATE.targetRotation.x * 2; // Yaw
+                const targetRotX = STATE.targetRotation.y * 1; // Pitch
+                
+                // Calculate "force" or step based on distance
+                const stepY = (targetRotY - this.particlesGroup.rotation.y) * 0.1;
+                const stepX = (targetRotX - this.particlesGroup.rotation.x) * 0.1;
+                
+                this.particlesGroup.rotation.y += stepY;
+                this.particlesGroup.rotation.x += stepX;
+                
+                // Capture momentum
+                STATE.velocity.x = stepX; // Pitch velocity
+                STATE.velocity.y = stepY; // Yaw velocity
+
+            } else {
+                // No Hand: Inertia + Auto Rotation
+                
+                // Apply Friction/Decay to momentum
+                STATE.velocity.x *= 0.95;
+                STATE.velocity.y *= 0.95;
+                
+                this.particlesGroup.rotation.x += STATE.velocity.x;
+                this.particlesGroup.rotation.y += STATE.velocity.y;
+
+                // Auto Rotation Logic (Only for TREE and SCATTER)
+                if (STATE.mode !== 'FOCUS') {
+                    // If momentum is almost gone, apply constant auto-spin
+                    if (Math.abs(STATE.velocity.y) < 0.002) {
+                        this.particlesGroup.rotation.y += 0.005; 
+                    }
+                    // Gently reset tilt (Pitch) to 0
+                    this.particlesGroup.rotation.x += (0 - this.particlesGroup.rotation.x) * 0.05;
+                }
             }
 
             // Update Each Particle
