@@ -197,9 +197,9 @@
             this.camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
             this.camera.position.set(0, 2, 50);
             
-            this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            this.renderer = new THREE.WebGLRenderer({ antialias: false, alpha: true }); // Disable antialias for perf
             this.renderer.setSize(window.innerWidth, window.innerHeight);
-            this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            this.renderer.setPixelRatio(1); // Force 1.0 for performance
             this.renderer.toneMapping = THREE.ReinhardToneMapping;
             this.renderer.toneMappingExposure = 2.2;
             this.container.appendChild(this.renderer.domElement);
@@ -311,9 +311,9 @@
         // --- Content Generation ---
 
         async generateContent() {
-            // Geometries
+            // Geometries (Simplified for performance)
             const boxGeo = new THREE.BoxGeometry(0.6, 0.6, 0.6);
-            const sphereGeo = new THREE.SphereGeometry(0.4, 16, 16);
+            const sphereGeo = new THREE.SphereGeometry(0.4, 8, 8); // Reduced segments 16->8
             
             // Materials
             const matGold = new THREE.MeshStandardMaterial({ 
@@ -342,8 +342,9 @@
             defaultTex.colorSpace = THREE.SRGBColorSpace;
             this.createPhotoObject(defaultTex); // Add initial photo
 
-            // 1500 Main Particles
-            for (let i = 0; i < 1500; i++) {
+            // 1000 Main Particles (Reduced from 1500)
+            const TREE_COUNT = 1000;
+            for (let i = 0; i < TREE_COUNT; i++) {
                 let mesh;
                 const rand = Math.random();
                 
@@ -361,20 +362,21 @@
                     mesh.userData.type = 'LEAF';
                 }
                 
-                this.initParticle(mesh, i, 1500);
+                this.initParticle(mesh, i, TREE_COUNT);
             }
 
-            // 2500 Heart Particles (Love for YingYing)
+            // 1200 Heart Particles (Reduced from 2500)
+            const HEART_COUNT = 1200;
             const heartGeo = this.createHeartGeometry();
             const heartMat = new THREE.MeshBasicMaterial({ color: 0xff69b4, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
             
-            for (let i = 0; i < 2500; i++) {
+            for (let i = 0; i < HEART_COUNT; i++) {
                 const mesh = new THREE.Mesh(heartGeo, heartMat);
                 mesh.userData.type = 'HEART'; // Changed from DUST
                 // Randomize scale for hearts
                 const s = 0.01 + Math.random() * 0.02;
                 mesh.scale.set(s, -s, s); // Flip y because shape is upside down locally usually
-                this.initParticle(mesh, i, 2500, true);
+                this.initParticle(mesh, i, HEART_COUNT, true);
             }
         }
 
@@ -402,7 +404,8 @@
                 new THREE.Vector3(-0.3, 1.8, 0),
                 new THREE.Vector3(-0.6, 1.5, 0)
             ]);
-            return new THREE.TubeGeometry(curve, 20, 0.1, 8, false);
+            // Simplified tube segments
+            return new THREE.TubeGeometry(curve, 10, 0.1, 4, false);
         }
 
         createCandyCaneMaterial() {
@@ -656,10 +659,20 @@
     }
 
     let lastVideoTime = -1;
+    let lastPredictionTime = 0;
+    
     function predict() {
+        // Throttle: Max 10 inferences per second (enough for gestures)
+        const now = performance.now();
+        if (now - lastPredictionTime < 100) {
+            requestAnimationFrame(predict);
+            return;
+        }
+        lastPredictionTime = now;
+
         if (video.currentTime !== lastVideoTime) {
             lastVideoTime = video.currentTime;
-            const results = handLandmarker.detectForVideo(video, performance.now());
+            const results = handLandmarker.detectForVideo(video, now);
             
             if (results.landmarks && results.landmarks.length > 0) {
                 const lm = results.landmarks[0];
