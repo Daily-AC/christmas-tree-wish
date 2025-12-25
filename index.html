@@ -1,52 +1,60 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Magical Christmas Tree</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Times+New+Roman&display=swap" rel="stylesheet">
 
-    <!-- MediaPipe Dependencies -->
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/control_utils/control_utils.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
-      crossorigin="anonymous"
-    ></script>
-    <script
-      src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
-      crossorigin="anonymous"
-    ></script>
-
-    <!-- Three.js (ES Module will be imported in script.js) -->
     <script type="importmap">
-      {
-        "imports": {
-          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+                "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/+esm"
+            }
         }
-      }
     </script>
-  </head>
-  <body>
-    <div id="loading">Loading Christmas Magic...</div>
-    <div id="instructions">
-      <p>🎄 允许摄像头权限以开启魔法手势 🎄</p>
-      <p>👋 挥手移动光标 | 🤏 捏合手指抓取照片</p>
+</head>
+<body>
+    <!-- Loader -->
+    <div id="loader">
+        <div class="spinner"></div>
+        <div class="loading-text">LOADING HOLIDAY MAGIC</div>
     </div>
 
-    <!-- Video element for MediaPipe (hidden) -->
-    <video class="input_video" style="display: none"></video>
+    <!-- UI Overlay -->
+    <div id="ui-container">
+        <h1>Merry Christmas</h1>
+        
+        <div class="upload-wrapper">
+            <button id="uploadBtn">ADD MEMORIES</button>
+            <input type="file" id="fileInput" accept="image/*" style="display: none;">
+        </div>
+        
+        <div class="hint-text">Press 'H' to Hide Controls</div>
+        
+        <!-- Instructions / Status -->
+        <div id="status-panel">
+            <p>👋 Open Hand: Scatter</p>
+            <p>✊ Fist: Tree</p>
+            <p>👌 Pinch: Focus Photo</p>
+        </div>
+    </div>
 
-    <!-- Main Canvas -->
-    <canvas class="output_canvas" id="mainCanvas"></canvas>
+    <!-- Hidden Webcam Container for CV -->
+    <div id="webcam-container">
+        <video id="webcam" autoplay playsinline></video>
+        <!-- Canvas for specific processing if needed, though MediaPipe handles it -->
+    </div>
+    
+    <canvas id="mainCanvas"></canvas>
 
     <script type="module" src="script.js"></script>
-  </body>
+</body>
 </html>
