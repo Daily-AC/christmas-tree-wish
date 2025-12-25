@@ -226,7 +226,9 @@ class ChristmasApp {
         this.composer.addPass(bloomPass);
     }
     
-    // ... (Init Content / Inputs same) ...
+    initContent() {
+        this.particleSystem = new ParticleManager(this.mainGroup, CONFIG.particleCount);
+    }
 
     handleGestures(results) {
         if (results.landmarks && results.landmarks.length > 0) {
