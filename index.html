@@ -652,11 +652,30 @@
     }
 
     function startWebcam() {
-        navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+        // Mobile optimization: Prefer front camera, lower resolution for performance
+        const constraints = {
+            video: {
+                facingMode: "user",
+                width: { ideal: 480 },
+                height: { ideal: 360 }
+            }
+        };
+
+        navigator.mediaDevices.getUserMedia(constraints).then(stream => {
             video.srcObject = stream;
             video.addEventListener("loadeddata", predict);
+        }).catch(err => {
+            console.error("Camera access denied:", err);
+            alert("无法访问摄像头。请确保通过 HTTPS 访问或授予权限。");
         });
     }
+
+    // --- Interaction Logic ---
+    // Touch support for mobile UI toggle
+    window.addEventListener('touchstart', () => {
+         // Simple tap to toggle UI (similar to 'H')
+         document.getElementById('ui-container').classList.toggle('ui-hidden');
+    }, { passive: true });
 
     let lastVideoTime = -1;
     let lastPredictionTime = 0;
