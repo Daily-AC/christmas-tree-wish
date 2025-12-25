@@ -219,32 +219,43 @@
             this.scene.add(this.particlesGroup);
 
             // Objects Storage
-            this.particles = [];
-
+            this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            
             this.initLights();
-            this.initPostProcessing();
+            // On mobile, skip expensive Post-Processing (Bloom) to save huge FPS
+            if (!this.isMobile) {
+                this.initPostProcessing();
+            }
+            
             this.initEvents();
         }
 
         initLights() {
             const ambient = new THREE.AmbientLight(0xffffff, 0.6);
             this.scene.add(ambient);
+            
+            // Simplified Lighting for Mobile
+            if (this.isMobile) {
+                const dirLight = new THREE.DirectionalLight(0xffaa00, 2);
+                dirLight.position.set(10, 20, 10);
+                this.scene.add(dirLight);
+            } else {
+                const innerLight = new THREE.PointLight(0xffaa00, 2, 50);
+                innerLight.position.set(0, 5, 0);
+                this.scene.add(innerLight);
 
-            const innerLight = new THREE.PointLight(0xffaa00, 2, 50);
-            innerLight.position.set(0, 5, 0);
-            this.scene.add(innerLight);
+                const goldSpot = new THREE.SpotLight(0xd4af37, 1200);
+                goldSpot.position.set(30, 40, 40);
+                goldSpot.angle = 0.5;
+                goldSpot.penumbra = 0.5;
+                this.scene.add(goldSpot);
 
-            const goldSpot = new THREE.SpotLight(0xd4af37, 1200);
-            goldSpot.position.set(30, 40, 40);
-            goldSpot.angle = 0.5;
-            goldSpot.penumbra = 0.5;
-            this.scene.add(goldSpot);
-
-            const blueSpot = new THREE.SpotLight(0x4444ff, 600);
-            blueSpot.position.set(-30, 20, -30);
-            blueSpot.angle = 0.5;
-            blueSpot.penumbra = 0.5;
-            this.scene.add(blueSpot); // Cool rim light
+                const blueSpot = new THREE.SpotLight(0x4444ff, 600);
+                blueSpot.position.set(-30, 20, -30);
+                blueSpot.angle = 0.5;
+                blueSpot.penumbra = 0.5;
+                this.scene.add(blueSpot);
+            }
         }
 
         initPostProcessing() {
@@ -254,9 +265,7 @@
 
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight),
-                0.45, // Strength
-                0.4,  // Radius
-                0.7   // Threshold
+                0.45, 0.4, 0.7
             );
             this.composer.addPass(bloomPass);
         }
@@ -305,7 +314,9 @@
             this.camera.aspect = window.innerWidth / window.innerHeight;
             this.camera.updateProjectionMatrix();
             this.renderer.setSize(window.innerWidth, window.innerHeight);
-            this.composer.setSize(window.innerWidth, window.innerHeight);
+            if (this.composer) {
+                this.composer.setSize(window.innerWidth, window.innerHeight);
+            }
         }
 
         // --- Content Generation ---
@@ -342,8 +353,11 @@
             defaultTex.colorSpace = THREE.SRGBColorSpace;
             this.createPhotoObject(defaultTex); // Add initial photo
 
-            // 1000 Main Particles (Reduced from 1500)
-            const TREE_COUNT = 1000;
+            // Adaptive Counts for Mobile
+            const TREE_COUNT = this.isMobile ? 500 : 1000;
+            const HEART_COUNT = this.isMobile ? 600 : 1200;
+
+            // Main Particles
             for (let i = 0; i < TREE_COUNT; i++) {
                 let mesh;
                 const rand = Math.random();
@@ -365,8 +379,7 @@
                 this.initParticle(mesh, i, TREE_COUNT);
             }
 
-            // 1200 Heart Particles (Reduced from 2500)
-            const HEART_COUNT = 1200;
+            // Heart Particles
             const heartGeo = this.createHeartGeometry();
             const heartMat = new THREE.MeshBasicMaterial({ color: 0xff69b4, transparent: true, opacity: 0.8, side: THREE.DoubleSide });
             
@@ -398,11 +411,8 @@
         createCandyCaneGeometry() {
             // J Shape curve
             const curve = new THREE.CatmullRomCurve3([
-                new THREE.Vector3(0, 0, 0),
-                new THREE.Vector3(0, 1, 0),
-                new THREE.Vector3(0, 1.5, 0),
-                new THREE.Vector3(-0.3, 1.8, 0),
-                new THREE.Vector3(-0.6, 1.5, 0)
+                new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 1.5, 0),
+                new THREE.Vector3(-0.3, 1.8, 0), new THREE.Vector3(-0.6, 1.5, 0)
             ]);
             // Simplified tube segments
             return new THREE.TubeGeometry(curve, 10, 0.1, 4, false);
@@ -416,9 +426,7 @@
             ctx.fillStyle = '#ff0000';
             // Draw stripes
             for(let i=-64; i<64; i+=16) {
-                ctx.beginPath();
-                ctx.moveTo(i, 0); ctx.lineTo(i+8, 0); ctx.lineTo(i+64+8, 64); ctx.lineTo(i+64, 64);
-                ctx.fill();
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i+8, 0); ctx.lineTo(i+64+8, 64); ctx.lineTo(i+64, 64); ctx.fill();
             }
             const tex = new THREE.CanvasTexture(canvas);
             tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
@@ -604,7 +612,7 @@
                 } else if (STATE.mode === 'FOCUS') {
                     // Background Items: Shrink to almost invisible (0.1%)
                     // This ensures Candy Canes and Ornaments don't block the view
-                    targetScale = p.userData.initialScale.clone().multiplyScalar(0.1); 
+                    targetScale = p.userData.initialScale.clone().multiplyScalar(0.001); 
                 } else {
                     // Normal Mode: Return to original size
                     targetScale = p.userData.initialScale;
@@ -615,7 +623,11 @@
             });
 
             this.controls.update();
-            this.composer.render();
+            if (this.composer) {
+                this.composer.render();
+            } else {
+                this.renderer.render(this.scene, this.camera);
+            }
             requestAnimationFrame(this.update.bind(this));
         }
 
