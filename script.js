@@ -1,18 +1,21 @@
-import * as THREE from "three";
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
 console.log("Christmas Tree Project Initialized 🎄");
 
-// Placeholder for main logic
 const TREE_HEIGHT = 20;
 const TREE_RADIUS = 8;
-const PARTICLE_COUNT = 2000;
+const PARTICLE_COUNT = 3000; // Increased for density
+const SNOW_COUNT = 1500;
 
 async function init() {
     const loading = document.getElementById('loading');
     
     // --- 1. Scene Setup ---
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x050510, 0.02);
+    scene.fog = new THREE.FogExp2(0x020205, 0.02); // Darker fog matching bg
 
     const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
     camera.position.z = 25;
@@ -21,65 +24,158 @@ async function init() {
 
     const renderer = new THREE.WebGLRenderer({ 
         canvas: document.getElementById('mainCanvas'), 
-        antialias: true,
+        antialias: false, // Bloom often wants false or specific handling, but 'true' is fine usually
         alpha: true 
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.toneMapping = THREE.ReinhardToneMapping; // Better light handling
+
+    // --- Post Processing (Bloom) ---
+    const renderScene = new RenderPass(scene, camera);
+    const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.85);
+    bloomPass.threshold = 0;
+    bloomPass.strength = 1.2; // Glowing strength
+    bloomPass.radius = 0.5;
+
+    const composer = new EffectComposer(renderer);
+    composer.addPass(renderScene);
+    composer.addPass(bloomPass);
+
 
     // --- 2. Particle Tree Generation ---
     const geometry = new THREE.BufferGeometry();
     const positions = [];
     const colors = [];
+    const sizes = []; // Varying sizes for particles
     const colorObj = new THREE.Color();
 
     for (let i = 0; i < PARTICLE_COUNT; i++) {
-        // Spiral Cone Distribution
+        // Spiral Cone
         const t = i / PARTICLE_COUNT;
-        const angle = t * Math.PI * 2 * 10; // 10 spirals
+        const angle = t * Math.PI * 2 * 15; // More spirals
         const radius = (1 - t) * TREE_RADIUS;
         
-        // Add some noise/randomness
-        const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 0.5;
-        const y = t * TREE_HEIGHT - 5; // Center vertically somewhat
-        const z = Math.sin(angle) * radius + (Math.random() - 0.5) * 0.5;
+        // Jitter
+        const x = Math.cos(angle) * radius + (Math.random() - 0.5) * 0.8;
+        const y = t * TREE_HEIGHT - 5; 
+        const z = Math.sin(angle) * radius + (Math.random() - 0.5) * 0.8;
 
         positions.push(x, y, z);
 
-        // Christmas Colors (Green, Red, Gold)
+        // Better Colors
+        // 70% Green (Base), 15% Gold (Lights), 15% Red/Blue (Ornaments)
         const rand = Math.random();
-        if (rand > 0.8) colorObj.setHex(0xff0000); // Red Ornaments
-        else if (rand > 0.6) colorObj.setHex(0xffd700); // Gold Lights
-        else colorObj.setHex(0x228b22); // Forest Green
+        let size = 0.2;
+        
+        if (rand > 0.85) {
+            colorObj.setHex(0xff0000); // Red
+            size = 0.5; // Bigger ornaments
+        }
+        else if (rand > 0.70) {
+            colorObj.setHex(0xffaa00); // Gold
+            colorObj.multiplyScalar(2); // Super bright for bloom
+            size = 0.4;
+        } 
+        else if (rand > 0.65) {
+            colorObj.setHex(0x0088ff); // Ice Blue
+            colorObj.multiplyScalar(2); 
+            size = 0.4;
+        }
+        else {
+             // Forest Green varying
+             colorObj.setHex(0x228b22); 
+             colorObj.offsetHSL(0, 0, (Math.random()-0.5)*0.1);
+        }
 
         colors.push(colorObj.r, colorObj.g, colorObj.b);
+        sizes.push(size);
     }
 
     geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
 
-    // Particle Material
-    const material = new THREE.PointsMaterial({
-        size: 0.3,
-        vertexColors: true,
+    // ShaderMaterial for twinkling/round particles
+    const vertexShader = `
+        attribute float size;
+        varying vec3 vColor;
+        void main() {
+            vColor = color;
+            vec4 mvPosition = modelViewMatrix * vec4( position, 1.0 );
+            gl_PointSize = size * ( 300.0 / -mvPosition.z );
+            gl_Position = projectionMatrix * mvPosition;
+        }
+    `;
+
+    const fragmentShader = `
+        varying vec3 vColor;
+        void main() {
+            // Circular particle
+            float r = distance(gl_PointCoord, vec2(0.5, 0.5));
+            if (r > 0.5) discard;
+            
+            // Soft edge
+            float glow = 1.0 - (r * 2.0);
+            glow = pow(glow, 1.5);
+            
+            gl_FragColor = vec4( vColor, glow );
+        }
+    `;
+
+    const material = new THREE.ShaderMaterial({
+        uniforms: {},
+        vertexShader: vertexShader,
+        fragmentShader: fragmentShader,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
         transparent: true,
-        map: createParticleTexture()
+        vertexColors: true
     });
 
     const particles = new THREE.Points(geometry, material);
     scene.add(particles);
 
-    // Star at the top
+    // --- Snow System ---
+    const snowGeo = new THREE.BufferGeometry();
+    const snowPos = [];
+    const snowVel = []; // Velocities
+    for(let i=0; i<SNOW_COUNT; i++) {
+        snowPos.push(
+            (Math.random() - 0.5) * 50,
+            (Math.random() - 0.5) * 50,
+            (Math.random() - 0.5) * 50
+        );
+        snowVel.push(
+            (Math.random() - 0.5) * 0.1, // x drift
+            -(Math.random() * 0.1 + 0.05), // fall speed
+            (Math.random() - 0.5) * 0.1 // z drift
+        );
+    }
+    snowGeo.setAttribute('position', new THREE.Float32BufferAttribute(snowPos, 3));
+    
+    // Snow uses simple points
+    const snowMat = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.2,
+        transparent: true,
+        opacity: 0.6,
+        blending: THREE.AdditiveBlending,
+         map: createParticleTexture() // reuse texture
+    });
+    const snowSystem = new THREE.Points(snowGeo, snowMat);
+    scene.add(snowSystem);
+
+
+    // Star at the top (Brighter)
     const starGeo = new THREE.SphereGeometry(0.5, 32, 32);
-    const starMat = new THREE.MeshBasicMaterial({ color: 0xffff00 });
+    const starMat = new THREE.MeshBasicMaterial({ color: 0xffff88 });
     const star = new THREE.Mesh(starGeo, starMat);
     star.position.set(0, TREE_HEIGHT - 5, 0);
     scene.add(star);
     
     // Add point light for star
-    const starLight = new THREE.PointLight(0xffff00, 2, 20);
+    const starLight = new THREE.PointLight(0xffaa00, 3, 30);
     starLight.position.set(0, TREE_HEIGHT - 5, 0);
     scene.add(starLight);
 
@@ -96,27 +192,45 @@ async function init() {
 
         // Rotate tree slowly
         if (!grabbedPhoto) {
-            particles.rotation.y = time * 0.1;
-            // Photos rotate with tree? complex if they are separate.
-            // For now, let's group them or just rotate scene?
-            // Simpler: Rotate the group container if we had one.
-            // Update photo positions if needed to spin with tree.
-            photos.forEach(p => {
+            particles.rotation.y = time * 0.05; // slower, more majestic
+            
+            // Sync photos rotation matches tree
+            const treeRotation = particles.rotation.y;
+             photos.forEach(p => {
                 if(p !== grabbedPhoto) {
-                    // Orbit logic if needed, or simple rotation
-                    const angle = time * 0.1 + p.userData.initialAngle;
                     const radius = p.userData.radius;
-                    p.position.x = Math.cos(angle) * radius;
-                    p.position.z = Math.sin(angle) * radius;
+                    // Initial angle + tree rotation
+                    const currentAngle = p.userData.initialAngle + treeRotation;
+                    p.position.x = Math.cos(currentAngle) * radius;
+                    p.position.z = Math.sin(currentAngle) * radius;
+                    // Make photo face outward or camera? Outward looks like decoration.
+                    // p.lookAt(0, p.position.y, 0); // Face center (backwards)
+                    // p.rotation.y += Math.PI; // Flash outward
+                    p.lookAt(camera.position); // Billboard usually best for photos
                 }
             });
         }
         
         star.rotation.y = -time * 0.2;
 
+        // Snow animation
+        const positions = snowSystem.geometry.attributes.position.array;
+        for(let i=0; i<SNOW_COUNT; i++) {
+            positions[i*3] += snowVel[i*3];
+            positions[i*3+1] += snowVel[i*3+1];
+            positions[i*3+2] += snowVel[i*3+2];
+            
+            // Reset if below floor
+            if(positions[i*3+1] < -15) {
+                 positions[i*3+1] = 15;
+            }
+        }
+        snowSystem.geometry.attributes.position.needsUpdate = true;
+
         updateInteractions(camera, scene);
         
-        renderer.render(scene, camera);
+        // renderer.render(scene, camera); // Replace with composer
+        composer.render();
     }
 
     animate();
@@ -126,6 +240,7 @@ async function init() {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        composer.setSize(window.innerWidth, window.innerHeight);
     });
 
     if(loading) loading.style.display = 'none';
